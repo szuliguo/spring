@@ -130,28 +130,38 @@ public final class SqlSessionUtils {
   private static void registerSessionHolder(SqlSessionFactory sessionFactory, ExecutorType executorType,
       PersistenceExceptionTranslator exceptionTranslator, SqlSession session) {
     SqlSessionHolder holder;
+    // 只有是在开启了Spring事务时，这个方法才返回true
     if (TransactionSynchronizationManager.isSynchronizationActive()) {
       Environment environment = sessionFactory.getConfiguration().getEnvironment();
-
+      // 如果MyBatis中使用的事务工厂是SpringManagedTransactionFactory(默认)
       if (environment.getTransactionFactory() instanceof SpringManagedTransactionFactory) {
         LOGGER.debug(() -> "Registering transaction synchronization for SqlSession [" + session + "]");
-
+        // 创建一个SqlSessionHolder
         holder = new SqlSessionHolder(session, executorType, exceptionTranslator);
+        // 绑定到当前线程，供后续同一Spring事务中使用
         TransactionSynchronizationManager.bindResource(sessionFactory, holder);
+        // 注册一个事务回调的接口，这里的方法依次会在Spring事务的某个阶段触发
+        // 上面绑定的SqlSessionHolder就是在这里的钩子方法注销的，往下看吧
         TransactionSynchronizationManager
             .registerSynchronization(new SqlSessionSynchronization(holder, sessionFactory));
+        // 设置值为true，sessionHolder方法内有用到
         holder.setSynchronizedWithTransaction(true);
+        // 获取次数加1
         holder.requested();
       } else {
+        // Spring事务使用的数据源与MyBatis中的数据源不一致，那么还是运行在Spring事务之外咯
+        // 其实我觉得这一行应该要先判断，然后再判断事务工厂，再绑定sqlSession?
         if (TransactionSynchronizationManager.getResource(environment.getDataSource()) == null) {
           LOGGER.debug(() -> "SqlSession [" + session
               + "] was not registered for synchronization because DataSource is not transactional");
         } else {
+          // Spring事务使用的数据源与MyBatis中的数据源一致，抛出异常.
           throw new TransientDataAccessResourceException(
               "SqlSessionFactory must be using a SpringManagedTransactionFactory in order to use Spring transaction synchronization");
         }
       }
     } else {
+      // 不是在Spring事务中运行
       LOGGER.debug(() -> "SqlSession [" + session
           + "] was not registered for synchronization because synchronization is not active");
     }
@@ -159,13 +169,19 @@ public final class SqlSessionUtils {
   }
 
   private static SqlSession sessionHolder(ExecutorType executorType, SqlSessionHolder holder) {
+    // 如果不是Spring管理的事务中，那么holder = null
     SqlSession session = null;
+    // 直接返回null
     if (holder != null && holder.isSynchronizedWithTransaction()) {
+      // 检查下同一Spring管理的事务中再次获取SqlSession时的executorType
+      // 如果与第一次不一样，抛出异常，第一次获取时会绑定到当前线程
+      // 供在同一个事务中再次获取时使用。
       if (holder.getExecutorType() != executorType) {
         throw new TransientDataAccessResourceException(
             "Cannot change the ExecutorType when there is an existing transaction");
       }
 
+      // 获取次数加1
       holder.requested();
 
       LOGGER.debug(() -> "Fetched SqlSession [" + holder.getSqlSession() + "] from current transaction");
@@ -217,6 +233,9 @@ public final class SqlSessionUtils {
   }
 
   /**
+   * // 最后再看下这个事务的回调吧，这个类最终肯定要实现TransactionSynchronization接口的
+   * // 其实可以发现这个类的逻辑和Spring中DataSourceUtils中的ConnectionSynchronization逻辑几乎完全一致
+   * // 主要关注这几个钩子方法吧
    * Callback for cleaning up resources. It cleans TransactionSynchronizationManager and also commits and closes the
    * {@code SqlSession}. It assumes that {@code Connection} life cycle will be managed by
    * {@code DataSourceTransactionManager} or {@code JtaTransactionManager}
@@ -247,6 +266,8 @@ public final class SqlSessionUtils {
     }
 
     /**
+     * 事务被挂起时，解绑绑定的sqlSessionHolder
+     *
      * {@inheritDoc}
      */
     @Override
@@ -270,6 +291,11 @@ public final class SqlSessionUtils {
 
     /**
      * {@inheritDoc}
+     * // 这里被触发是因为调用了transactionManager.commit()方法，Spring事务马上可能就要提交了
+     *    // 这里需要调用下sqlSession.commit()以完成MyBatis内部缓存的相关工作以及刷新批处理
+     *    // 如果不调用的话，那么在sqlSession.close()时，内部就会走回滚逻辑了。
+     *    // 当然了这里虽然调用sqlSession.commit()，但是对于数据库事务因为会调用MyBatis事务对象的commit
+     *    // 而SpringManagedTransaction这个对象的commit有做过判断，因此不会影响Spring的事务提交
      */
     @Override
     public void beforeCommit(boolean readOnly) {
