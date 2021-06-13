@@ -53,12 +53,16 @@ public class SpringManagedTransaction implements Transaction {
 
   private boolean autoCommit;
 
+  /** 只是简单的赋值 **/
   public SpringManagedTransaction(DataSource dataSource) {
     notNull(dataSource, "No DataSource specified");
     this.dataSource = dataSource;
   }
 
   /**
+   *  获取一个连接，通过DataSourceUtils.getConnection实现
+   *  如果有事务(Spring管理),则会返回当前线程绑定的连接
+   *  否则从数据源中拿到一个新连接
    * {@inheritDoc}
    */
   @Override
@@ -70,6 +74,8 @@ public class SpringManagedTransaction implements Transaction {
   }
 
   /**
+   * 获取连接, 全都是DataSourceUtils里的方法，因此需要先弄懂这个类
+   *
    * Gets a connection from Spring transaction manager and discovers if this {@code Transaction} should manage
    * connection or let it to Spring.
    * <p>
@@ -86,6 +92,8 @@ public class SpringManagedTransaction implements Transaction {
   }
 
   /**
+   * 提交操作，只有不是Spring事务管理的连接，并且这个连接从数据源中取出来就需要手动提交
+   * 时才提交
    * {@inheritDoc}
    */
   @Override
@@ -97,6 +105,7 @@ public class SpringManagedTransaction implements Transaction {
   }
 
   /**
+   * 同提交
    * {@inheritDoc}
    */
   @Override
@@ -108,6 +117,7 @@ public class SpringManagedTransaction implements Transaction {
   }
 
   /**
+   * 将连接释放
    * {@inheritDoc}
    */
   @Override

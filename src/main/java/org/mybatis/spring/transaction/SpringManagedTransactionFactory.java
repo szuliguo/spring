@@ -27,11 +27,15 @@ import org.apache.ibatis.transaction.TransactionFactory;
 /**
  * Creates a {@code SpringManagedTransaction}.
  *
+ * MyBatis本身内部有提供事务相关的API，但是与Spring整合后，需要将事务交给Spring来管理，以前的JdbcTransaction是不能与Spring一起工作的。
+ * 而SpringManagedTransaction就是为了与Spring整合而设计的一个新的事务(Transaction接口)实现类。
+ *
  * @author Hunter Presnall
  */
 public class SpringManagedTransactionFactory implements TransactionFactory {
 
   /**
+   * 会忽略隔离级别以及自动提交这两个参数
    * {@inheritDoc}
    */
   @Override

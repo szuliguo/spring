@@ -94,16 +94,18 @@ public final class SqlSessionUtils {
     notNull(sessionFactory, NO_SQL_SESSION_FACTORY_SPECIFIED);
     notNull(executorType, NO_EXECUTOR_TYPE_SPECIFIED);
 
+    //若开启了事务支持，则从当前的ThreadLocal上下文中获取SqlSessionHolder
     SqlSessionHolder holder = (SqlSessionHolder) TransactionSynchronizationManager.getResource(sessionFactory);
-
+    //SqlSessionHolder是SqlSession的包装类
     SqlSession session = sessionHolder(executorType, holder);
     if (session != null) {
       return session;
     }
 
     LOGGER.debug(() -> "Creating a new SqlSession");
+    //若无法从ThrealLocal上下文中获取则通过SqlSessionFactory获取SqlSession
     session = sessionFactory.openSession(executorType);
-
+    //若为事务操作，则注册SqlSessionHolder到ThrealLocal中
     registerSessionHolder(sessionFactory, executorType, exceptionTranslator, session);
 
     return session;
